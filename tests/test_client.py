@@ -2,6 +2,7 @@ import getpass
 from unittest import mock
 
 import pytest
+import requests.sessions
 
 import jira.client
 from jira.exceptions import JIRAError
@@ -52,16 +53,6 @@ def slug(request, cl_admin):
     return slug
 
 
-@pytest.fixture()
-def no_fields(monkeypatch):
-    """When we want to test the __init__ method of the jira.client.JIRA
-    we don't need any external calls to get the fields.
-
-    We don't need the features of a MagicMock, hence we don't use it here.
-    """
-    monkeypatch.setattr(jira.client.JIRA, "fields", lambda *args, **kwargs: [])
-
-
 def test_delete_project(cl_admin, cl_normal, slug):
 
     assert cl_admin.delete_project(slug)
@@ -74,9 +65,7 @@ def test_delete_inexistent_project(cl_admin):
 
     assert "No project could be found with key" in str(
         ex.value
-    ) or 'Parameter pid="%s" is not a Project, projectID or slug' % slug in str(
-        ex.value
-    )
+    ) or f'Parameter pid="{slug}" is not a Project, projectID or slug' in str(ex.value)
 
 
 def test_templates(cl_admin):
@@ -213,6 +202,21 @@ def test_token_auth(cl_admin: jira.client.JIRA):
     # THEN: The reported authenticated user of the token
     # matches the original token creator user.
     assert cl_admin.myself() == new_jira_client.myself()
+
+
+def test_bearer_token_auth():
+    my_token = "cool-token"
+    token_auth_jira = jira.client.JIRA(
+        server="https://what.ever",
+        token_auth=my_token,
+        get_server_info=False,
+        validate=False,
+    )
+    method_send = token_auth_jira._session.send
+    with mock.patch.object(token_auth_jira._session, method_send.__name__) as mock_send:
+        token_auth_jira._session.get(token_auth_jira.server_url)
+        prepared_req: requests.sessions.PreparedRequest = mock_send.call_args[0][0]
+        assert prepared_req.headers["Authorization"] == f"Bearer {my_token}"
 
 
 def test_cookie_auth(test_manager: JiraTestManager):

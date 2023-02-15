@@ -16,11 +16,11 @@ logging.getLogger("jira").setLevel(logging.DEBUG)
 
 CI_JIRA_URL = os.environ["CI_JIRA_URL"]
 CI_JIRA_ADMIN = os.environ["CI_JIRA_ADMIN"]
-CI_JIRA_ADMIN_PASSWORD = os.environ["CI_JIRA_ADMIN_PASSWORD"]
+CI_JIRA_ADMIN_TOKEN = os.environ["CI_JIRA_ADMIN_TOKEN"]
 
 j = JIRA(
     CI_JIRA_URL,
-    basic_auth=(CI_JIRA_ADMIN, CI_JIRA_ADMIN_PASSWORD),
+    basic_auth=(CI_JIRA_ADMIN, CI_JIRA_ADMIN_TOKEN),
     logging=True,
     validate=True,
     async_=True,
@@ -38,27 +38,27 @@ for p in j.projects():
 
 for s in j.permissionschemes():
     if " for Project" in s["name"]:
-        logging.info("Deleting permission scheme: %s" % s["name"])
+        logging.info(f"Deleting permission scheme: {s['name']}")
         try:
             j.delete_permissionscheme(s["id"])
         except JIRAError as e:
             logging.error(e.text)
     else:
-        logging.info("Permission scheme: %s" % s["name"])
+        logging.info(f"Permission scheme: {s['name']}")
 
 for s in j.issuesecurityschemes():
     if " for Project" in s["name"]:
         logging.info("Deleting issue security scheme: %s", s["name"])
         j.delete_permissionscheme(s["id"])
     else:
-        logging.error("Issue security scheme: %s" % s["name"])
+        logging.error(f"Issue security scheme: {s['name']}")
 
 for s in j.projectcategories():
     # if ' for Project' in s['name']:
     #     print("Deleting issue security scheme: %s" % s['name'])
     #     # j.delete_permissionscheme(s['id'])
     # else:
-    logging.info("Project category: %s" % s["name"])
+    logging.info(f"Project category: {s['name']}")
 
 for s in j.avatars("project"):
     logging.info("Avatar project: %s", s)

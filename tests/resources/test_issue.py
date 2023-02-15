@@ -1,15 +1,7 @@
 import logging
-import re
-from time import sleep
 
 from jira.exceptions import JIRAError
-from tests.conftest import (
-    JiraTestCase,
-    broken_test,
-    find_by_key,
-    find_by_key_value,
-    rndstr,
-)
+from tests.conftest import JiraTestCase, find_by_key, find_by_key_value
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +16,37 @@ class IssueTests(JiraTestCase):
     def test_issue(self):
         issue = self.jira.issue(self.issue_1)
         self.assertEqual(issue.key, self.issue_1)
-        self.assertEqual(issue.fields.summary, "issue 1 from %s" % self.project_b)
+        self.assertEqual(issue.fields.summary, f"issue 1 from {self.project_b}")
+
+    def test_issue_search_finds_issue(self):
+        issues = self.jira.search_issues("key=%s" % self.issue_1)
+        self.assertEqual(self.issue_1, issues[0].key)
+
+    def test_issue_search_return_type(self):
+        issues = self.jira.search_issues("key=%s" % self.issue_1)
+        self.assertIsInstance(issues, list)
+        issues = self.jira.search_issues("key=%s" % self.issue_1, json_result=True)
+        self.assertIsInstance(issues, dict)
+
+    def test_issue_search_only_includes_provided_fields(self):
+        issues = self.jira.search_issues(
+            "key=%s" % self.issue_1, fields="comment,assignee"
+        )
+        self.assertTrue(hasattr(issues[0].fields, "comment"))
+        self.assertTrue(hasattr(issues[0].fields, "assignee"))
+        self.assertFalse(hasattr(issues[0].fields, "reporter"))
+
+    def test_issue_search_default_behaviour_included_fields(self):
+        search_str = f"key={self.issue_1}"
+        issues = self.jira.search_issues(search_str)
+        self.assertTrue(hasattr(issues[0].fields, "reporter"))
+        self.assertTrue(hasattr(issues[0].fields, "comment"))
+
+        # fields=None should be valid and return all fields (ie. default behavior)
+        self.assertEqual(
+            self.jira.search_issues(search_str),
+            self.jira.search_issues(search_str, fields=None),
+        )
 
     def test_issue_get_field(self):
         issue = self.jira.issue(self.issue_1)
@@ -40,7 +62,7 @@ class IssueTests(JiraTestCase):
 
     def test_issue_field_limiting(self):
         issue = self.jira.issue(self.issue_2, fields="summary,comment")
-        self.assertEqual(issue.fields.summary, "issue 2 from %s" % self.project_b)
+        self.assertEqual(issue.fields.summary, f"issue 2 from {self.project_b}")
         comment1 = self.jira.add_comment(issue, "First comment")
         comment2 = self.jira.add_comment(issue, "Second comment")
         comment3 = self.jira.add_comment(issue, "Third comment")
@@ -55,7 +77,7 @@ class IssueTests(JiraTestCase):
     def test_issue_equal(self):
         issue1 = self.jira.issue(self.issue_1)
         issue2 = self.jira.issue(self.issue_2)
-        issues = self.jira.search_issues("key=%s" % self.issue_1)
+        issues = self.jira.search_issues(f"key={self.issue_1}")
         self.assertTrue(issue1 is not None)
         self.assertTrue(issue1 == issues[0])
         self.assertFalse(issue2 == issues[0])
@@ -233,6 +255,29 @@ class IssueTests(JiraTestCase):
         assert "fields" not in issues[1]["issue"].raw
         for issue in issues:
             issue["issue"].delete()
+
+    def test_create_issue_with_integer_issuetype(self):
+        # take first existing issuetype to avoid problems due to hardcoded name/id later
+        issue_types_resolved = self.jira.issue_types()
+        dyn_it = issue_types_resolved[0]
+
+        issue = self.jira.create_issue(
+            summary="Test issue created using an integer issuetype",
+            project=self.project_b,
+            issuetype=int(dyn_it.id),
+        )
+        self.assertEqual(issue.get_field("issuetype").name, dyn_it.name)
+
+    def test_create_issue_with_issue_type_name(self):
+        issue_types_resolved = self.jira.issue_types()
+        dyn_it = issue_types_resolved[0]
+
+        issue = self.jira.create_issue(
+            summary="Test issue created using a str issuetype",
+            project=self.project_b,
+            issuetype=dyn_it.name,
+        )
+        self.assertEqual(issue.get_field("issuetype").name, dyn_it.name)
 
     def test_update_with_fieldargs(self):
         issue = self.jira.create_issue(
@@ -498,53 +543,3 @@ class IssueTests(JiraTestCase):
         self.jira.rank(self.issue_2, prev_issue=self.issue_1)
         issues = get_issues_ordered_by_rank()
         assert (issues[0].key, issues[1].key) == (self.issue_1, self.issue_2)
-
-    @broken_test(
-        reason="Greenhopper API doesn't work on standalone docker image with JIRA Server 8.9.0"
-    )
-    def test_agile(self):
-        uniq = rndstr()
-        board_name = "board-" + uniq
-        sprint_name = "sprint-" + uniq
-        filter_name = "filter-" + uniq
-
-        filter = self.jira.create_filter(
-            filter_name, "description", f"project={self.project_b}", True
-        )
-
-        b = self.jira.create_board(board_name, filter.id)
-        assert isinstance(b.id, int)
-
-        s = self.jira.create_sprint(sprint_name, b.id)
-        assert isinstance(s.id, int)
-        assert s.name == sprint_name
-        assert s.state.upper() == "FUTURE"
-
-        self.jira.add_issues_to_sprint(s.id, [self.issue_1])
-
-        sprint_field_name = "Sprint"
-        sprint_field_id = [
-            f["schema"]["customId"]
-            for f in self.jira.fields()
-            if f["name"] == sprint_field_name
-        ][0]
-        sprint_customfield = "customfield_" + str(sprint_field_id)
-
-        updated_issue_1 = self.jira.issue(self.issue_1)
-        serialised_sprint = getattr(updated_issue_1.fields, sprint_customfield)[0]
-
-        # Too hard to serialise the sprint object. Performing simple regex match instead.
-        assert re.search(r"\[id=" + str(s.id) + ",", serialised_sprint)
-
-        # self.jira.add_issues_to_sprint(s.id, self.issue_2)
-
-        # self.jira.rank(self.issue_2, self.issue_1)
-
-        sleep(2)  # avoid https://travis-ci.org/pycontribs/jira/jobs/176561534#L516
-        s.delete()
-
-        sleep(2)
-        b.delete()
-        # self.jira.delete_board(b.id)
-
-        filter.delete()  # must delete this filter AFTER deleting board referencing the filter

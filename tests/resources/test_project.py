@@ -1,3 +1,4 @@
+from jira import JIRAError
 from tests.conftest import JiraTestCase, find_by_id, rndstr
 
 
@@ -106,7 +107,7 @@ class ProjectTests(JiraTestCase):
         component.delete()
 
     def test_project_versions(self):
-        name = "version-%s" % rndstr()
+        name = f"version-{rndstr()}"
         version = self.jira.create_version(name, self.project_b, "will be deleted soon")
         versions = self.jira.project_versions(self.project_b)
         self.assertGreaterEqual(len(versions), 1)
@@ -120,9 +121,9 @@ class ProjectTests(JiraTestCase):
 
     def test_update_project_version(self):
         # given
-        name = "version-%s" % rndstr()
+        name = f"version-{rndstr()}"
         version = self.jira.create_version(name, self.project_b, "will be deleted soon")
-        updated_name = "version-%s" % rndstr()
+        updated_name = f"version-{rndstr()}"
         # when
         version.update(name=updated_name)
         # then
@@ -130,7 +131,7 @@ class ProjectTests(JiraTestCase):
         version.delete()
 
     def test_get_project_version_by_name(self):
-        name = "version-%s" % rndstr()
+        name = f"version-{rndstr()}"
         version = self.jira.create_version(name, self.project_b, "will be deleted soon")
 
         found_version = self.jira.get_project_version_by_name(self.project_b, name)
@@ -147,7 +148,7 @@ class ProjectTests(JiraTestCase):
         version.delete()
 
     def test_rename_version(self):
-        old_name = "version-%s" % rndstr()
+        old_name = f"version-{rndstr()}"
         version = self.jira.create_version(
             old_name, self.project_b, "will be deleted soon"
         )
@@ -169,7 +170,7 @@ class ProjectTests(JiraTestCase):
         version.delete()
 
     def test_project_versions_with_project_obj(self):
-        name = "version-%s" % rndstr()
+        name = f"version-{rndstr()}"
         version = self.jira.create_version(name, self.project_b, "will be deleted soon")
         project = self.jira.project(self.project_b)
         versions = self.jira.project_versions(project)
@@ -201,6 +202,29 @@ class ProjectTests(JiraTestCase):
         self.assertIn(user.name, [a.name for a in role.actors])
         self.assertIn(actor_admin, [a.name for a in role.actors])
 
-    def test_project_permissionscheme(self):
+    def test_project_permission_scheme(self):
         permissionscheme = self.jira.project_permissionscheme(self.project_b)
         self.assertEqual(permissionscheme.name, "Default Permission Scheme")
+
+    def test_project_priority_scheme(self):
+        priorityscheme = self.jira.project_priority_scheme(self.project_b)
+        self.assertEqual(priorityscheme.name, "Default priority scheme")
+
+    def test_project_notification_scheme(self):
+        notificationscheme = self.jira.project_notification_scheme(self.project_b)
+        self.assertEqual(notificationscheme.name, "Default Notification Scheme")
+
+    def test_project_issue_security_level_scheme(self):
+        # 404s are thrown when a project does not have an issue security scheme
+        # associated with it explicitly. There are no ReST APIs for creating an
+        # issue security scheme programmatically, so there is no way to test
+        # this on the fly.
+        with self.assertRaises(JIRAError):
+            self.jira.project_issue_security_level_scheme(self.project_b)
+
+    def test_project_workflow_scheme(self):
+        workflowscheme = self.jira.project_workflow_scheme(self.project_b)
+        self.assertEqual(
+            workflowscheme.name,
+            f"{self.project_b}: Software Simplified Workflow Scheme",
+        )
